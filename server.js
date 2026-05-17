@@ -28,25 +28,7 @@ app.get("/voice", (req, res) => {
 
   twiml.say(
     { voice: "alice", language: "en-US" },
-    "Lukintosh Voice preview. This is what callers will hear."
-  );
-
-  sendTwiML(res, twiml);
-});
-
-app.post("/voice", (req, res) => {
-  const twiml = voice();
-
-  twiml.pause({ length: 1 });
-
-  twiml.say(
-    { voice: "alice", language: "en-US" },
     "Thank you for calling Lukintosh Corporation."
-  );
-
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "This support line is currently in testing."
   );
 
   const gather = twiml.gather({
