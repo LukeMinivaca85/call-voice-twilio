@@ -2,6 +2,7 @@ const express = require("express");
 const twilio = require("twilio");
 
 const app = express();
+
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
@@ -16,34 +17,70 @@ function send(res, response) {
   res.send(response.toString());
 }
 
-app.get("/", (req, res) => {
-  res.send("Lukintosh Voice Support is online.");
-});
-
-app.get("/voice", (req, res) => {
-  const r = twiml();
-  r.say(voice, "Lukintosh Support preview is online.");
-  send(res, r);
-});
-
-app.post("/voice", (req, res) => {
+function buildMainMenu() {
   const r = twiml();
 
   r.pause({ length: 1 });
-  r.say(voice, "Thank you for calling Lukintosh Corporation.");
-  r.say(voice, "Your call may be monitored or recorded for quality, training, security, and service improvement purposes.");
-  r.say(voice, "For English, press 1. Para portugues, press 2.");
 
-  const gather = r.gather({
+  r.say(voice, "Thank you for calling Lukintosh Corporation.");
+  r.say(
+    voice,
+    "Your call may be monitored or recorded for quality, training, security, and service improvement purposes."
+  );
+
+  const lang = r.gather({
     numDigits: 1,
     timeout: 8,
     action: "/language",
-    method: "POST"
+    method: "POST",
   });
 
-  gather.say(voice, "Please select your language now.");
+  lang.say(voice, "For English, press 1. Para portugues, press 2.");
 
   r.redirect({ method: "POST" }, "/voice");
+
+  return r;
+}
+
+app.get("/", (req, res) => {
+  res.send(`
+    <h1>Lukintosh Voice Support</h1>
+    <p>Status: online</p>
+    <p><a href="/voice">Voice XML preview</a></p>
+    <p><a href="/preview">Full browser preview</a></p>
+  `);
+});
+
+app.get("/voice", (req, res) => {
+  send(res, buildMainMenu());
+});
+
+app.post("/voice", (req, res) => {
+  send(res, buildMainMenu());
+});
+
+app.get("/preview", (req, res) => {
+  const r = twiml();
+
+  r.say(voice, "Thank you for calling Lukintosh Corporation.");
+  r.say(
+    voice,
+    "Your call may be monitored or recorded for quality, training, security, and service improvement purposes."
+  );
+
+  r.say(voice, "For English, press 1. Para portugues, press 2.");
+  r.say(voice, "Please listen carefully as our menu options have recently changed.");
+  r.say(voice, "For Lukintosh Accounts and sign in support, press 1.");
+  r.say(voice, "For Yeux accessibility and eye tracking support, press 2.");
+  r.say(voice, "For developer tools, APIs, and platform services, press 3.");
+  r.say(voice, "For security, abuse, and account protection, press 4.");
+  r.say(voice, "For company, media, and business information, press 5.");
+  r.say(voice, "Before we continue, we need to collect a few details.");
+  r.say(voice, "Please enter your six digit support code or ticket number.");
+  r.say(voice, "Please hold while we route your call to the correct support channel.");
+  r.say(voice, "Your call is important to us. Current estimated wait time is less than one minute.");
+  r.say(voice, "All support specialists are currently unavailable on this testing line.");
+  r.say(voice, "Please leave your message after the tone.");
 
   send(res, r);
 });
@@ -62,7 +99,7 @@ app.post("/language", (req, res) => {
     numDigits: 1,
     timeout: 10,
     action: "/department",
-    method: "POST"
+    method: "POST",
   });
 
   gather.say(voice, "For Lukintosh Accounts and sign in support, press 1.");
@@ -87,10 +124,13 @@ app.post("/department", (req, res) => {
     numDigits: 6,
     timeout: 12,
     action: `/account?department=${department}`,
-    method: "POST"
+    method: "POST",
   });
 
-  gather.say(voice, "Please enter your six digit support code or ticket number. If you do not have one, enter zero zero zero zero zero zero.");
+  gather.say(
+    voice,
+    "Please enter your six digit support code or ticket number. If you do not have one, enter zero zero zero zero zero zero."
+  );
 
   r.redirect({ method: "POST" }, `/account?department=${department}`);
 
@@ -109,7 +149,7 @@ app.post("/account", (req, res) => {
     numDigits: 1,
     timeout: 10,
     action: `/reason?department=${department}&ticket=${ticket}`,
-    method: "POST"
+    method: "POST",
   });
 
   gather.say(voice, "For login or password issues, press 1.");
@@ -130,14 +170,13 @@ app.post("/reason", (req, res) => {
   const ticket = req.query.ticket || "000000";
   const reason = req.body.Digits || "unknown";
 
-  console.log("New support call:");
-  console.log({
+  console.log("New support call:", {
     from: req.body.From,
     to: req.body.To,
     country: req.body.FromCountry,
     department,
     ticket,
-    reason
+    reason,
   });
 
   r.say(voice, "Thank you. We are checking your information.");
@@ -150,14 +189,17 @@ app.post("/reason", (req, res) => {
   r.pause({ length: 2 });
 
   r.say(voice, "All support specialists are currently unavailable on this testing line.");
-  r.say(voice, "You may leave a message after the tone. Please include your name, email address, and a short description of the issue.");
+  r.say(
+    voice,
+    "You may leave a message after the tone. Please include your name, email address, and a short description of the issue."
+  );
 
   r.record({
     maxLength: 45,
     playBeep: true,
     transcribe: false,
     action: `/voicemail?department=${department}&ticket=${ticket}&reason=${reason}`,
-    method: "POST"
+    method: "POST",
   });
 
   send(res, r);
@@ -166,25 +208,25 @@ app.post("/reason", (req, res) => {
 app.post("/voicemail", (req, res) => {
   const r = twiml();
 
-  console.log("Voicemail received:");
-  console.log({
+  console.log("Voicemail received:", {
     from: req.body.From,
     recordingUrl: req.body.RecordingUrl,
     duration: req.body.RecordingDuration,
     department: req.query.department,
     ticket: req.query.ticket,
-    reason: req.query.reason
+    reason: req.query.reason,
   });
 
   r.say(voice, "Thank you. Your message has been recorded.");
   r.say(voice, "A support record has been created for this call.");
   r.say(voice, "Goodbye.");
-
   r.hangup();
+
   send(res, r);
 });
 
 const PORT = process.env.PORT || 8080;
+
 app.listen(PORT, () => {
   console.log(`Lukintosh Voice Support running on port ${PORT}`);
 });
