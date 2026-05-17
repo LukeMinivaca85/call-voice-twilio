@@ -2,143 +2,189 @@ const express = require("express");
 const twilio = require("twilio");
 
 const app = express();
-
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-function voice() {
+const voice = { voice: "alice", language: "en-US" };
+
+function twiml() {
   return new twilio.twiml.VoiceResponse();
 }
 
-function sendTwiML(res, twiml) {
+function send(res, response) {
   res.type("text/xml");
-  res.send(twiml.toString());
+  res.send(response.toString());
 }
 
 app.get("/", (req, res) => {
-  res.send(`
-    <h1>Lukintosh Voice is online</h1>
-    <p>Voice endpoint: <a href="/voice">/voice</a></p>
-    <p>Status: Operational</p>
-  `);
+  res.send("Lukintosh Voice Support is online.");
 });
 
 app.get("/voice", (req, res) => {
-  const twiml = voice();
+  const r = twiml();
+  r.say(voice, "Lukintosh Support preview is online.");
+  send(res, r);
+});
 
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "Thank you for calling Lukintosh Corporation."
-  );
+app.post("/voice", (req, res) => {
+  const r = twiml();
 
-  const gather = twiml.gather({
+  r.pause({ length: 1 });
+  r.say(voice, "Thank you for calling Lukintosh Corporation.");
+  r.say(voice, "Your call may be monitored or recorded for quality, training, security, and service improvement purposes.");
+  r.say(voice, "For English, press 1. Para portugues, press 2.");
+
+  const gather = r.gather({
     numDigits: 1,
     timeout: 8,
-    action: "/menu",
-    method: "POST",
+    action: "/language",
+    method: "POST"
   });
 
-  gather.say(
-    { voice: "alice", language: "en-US" },
-    "Press 1 for Lukintosh ID. Press 2 for Yeux support. Press 3 for company information. Press 4 for service status. Press 5 to leave a message."
-  );
+  gather.say(voice, "Please select your language now.");
 
-  twiml.redirect({ method: "POST" }, "/no-input");
+  r.redirect({ method: "POST" }, "/voice");
 
-  sendTwiML(res, twiml);
+  send(res, r);
 });
 
-app.post("/menu", (req, res) => {
-  const twiml = voice();
+app.post("/language", (req, res) => {
+  const r = twiml();
   const digit = req.body.Digits;
 
-  if (digit === "1") {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Lukintosh ID support is currently in testing. Account login, two factor authentication, and security features are being prepared."
-    );
-  } else if (digit === "2") {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Yeux support is currently in testing. Yeux is the Lukintosh eye tracking control system."
-    );
-  } else if (digit === "3") {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Lukintosh Corporation is a technology company in development, focused on software, artificial intelligence, developer tools, and human computer interaction."
-    );
-  } else if (digit === "4") {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Current service status: operational. This is a testing line, not an emergency support channel."
-    );
-  } else if (digit === "5") {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Please leave your message after the tone. You have thirty seconds."
-    );
-
-    twiml.record({
-      maxLength: 30,
-      playBeep: true,
-      transcribe: false,
-      action: "/recording-finished",
-      method: "POST",
-    });
-
-    sendTwiML(res, twiml);
-    return;
-  } else {
-    twiml.say(
-      { voice: "alice", language: "en-US" },
-      "Invalid option."
-    );
+  if (digit !== "1") {
+    r.say(voice, "Portuguese support is not available on this testing line yet. Continuing in English.");
   }
 
-  twiml.pause({ length: 1 });
+  r.say(voice, "Please listen carefully as our menu options have recently changed.");
 
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "Thank you for calling Lukintosh. Goodbye."
-  );
+  const gather = r.gather({
+    numDigits: 1,
+    timeout: 10,
+    action: "/department",
+    method: "POST"
+  });
 
-  twiml.hangup();
+  gather.say(voice, "For Lukintosh Accounts and sign in support, press 1.");
+  gather.say(voice, "For Yeux accessibility and eye tracking support, press 2.");
+  gather.say(voice, "For developer tools, APIs, and platform services, press 3.");
+  gather.say(voice, "For security, abuse, and account protection, press 4.");
+  gather.say(voice, "For company, media, and business information, press 5.");
 
-  sendTwiML(res, twiml);
+  r.redirect({ method: "POST" }, "/language");
+
+  send(res, r);
 });
 
-app.post("/no-input", (req, res) => {
-  const twiml = voice();
+app.post("/department", (req, res) => {
+  const r = twiml();
+  const department = req.body.Digits || "unknown";
 
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "No option was selected. Please visit lukintosh.com for more information."
-  );
+  r.say(voice, "Before we continue, we need to collect a few details.");
 
-  twiml.hangup();
+  const gather = r.gather({
+    input: "dtmf",
+    numDigits: 6,
+    timeout: 12,
+    action: `/account?department=${department}`,
+    method: "POST"
+  });
 
-  sendTwiML(res, twiml);
+  gather.say(voice, "Please enter your six digit support code or ticket number. If you do not have one, enter zero zero zero zero zero zero.");
+
+  r.redirect({ method: "POST" }, `/account?department=${department}`);
+
+  send(res, r);
 });
 
-app.post("/recording-finished", (req, res) => {
-  console.log("New voicemail:");
-  console.log("From:", req.body.From);
-  console.log("Recording URL:", req.body.RecordingUrl);
+app.post("/account", (req, res) => {
+  const r = twiml();
+  const department = req.query.department || "unknown";
+  const ticket = req.body.Digits || "000000";
 
-  const twiml = voice();
+  r.say(voice, `Thank you. Your reference code is ${ticket.split("").join(" ")}.`);
 
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "Thank you. Your message has been recorded. Goodbye."
-  );
+  const gather = r.gather({
+    input: "dtmf",
+    numDigits: 1,
+    timeout: 10,
+    action: `/reason?department=${department}&ticket=${ticket}`,
+    method: "POST"
+  });
 
-  twiml.hangup();
+  gather.say(voice, "For login or password issues, press 1.");
+  gather.say(voice, "For product setup or installation, press 2.");
+  gather.say(voice, "For billing or subscription information, press 3.");
+  gather.say(voice, "For technical errors, press 4.");
+  gather.say(voice, "For another reason, press 5.");
 
-  sendTwiML(res, twiml);
+  r.redirect({ method: "POST" }, `/reason?department=${department}&ticket=${ticket}`);
+
+  send(res, r);
+});
+
+app.post("/reason", (req, res) => {
+  const r = twiml();
+
+  const department = req.query.department || "unknown";
+  const ticket = req.query.ticket || "000000";
+  const reason = req.body.Digits || "unknown";
+
+  console.log("New support call:");
+  console.log({
+    from: req.body.From,
+    to: req.body.To,
+    country: req.body.FromCountry,
+    department,
+    ticket,
+    reason
+  });
+
+  r.say(voice, "Thank you. We are checking your information.");
+  r.pause({ length: 1 });
+
+  r.say(voice, "Please hold while we route your call to the correct support channel.");
+  r.play("https://api.twilio.com/cowbell.mp3");
+
+  r.say(voice, "Your call is important to us. Current estimated wait time is less than one minute.");
+  r.pause({ length: 2 });
+
+  r.say(voice, "All support specialists are currently unavailable on this testing line.");
+  r.say(voice, "You may leave a message after the tone. Please include your name, email address, and a short description of the issue.");
+
+  r.record({
+    maxLength: 45,
+    playBeep: true,
+    transcribe: false,
+    action: `/voicemail?department=${department}&ticket=${ticket}&reason=${reason}`,
+    method: "POST"
+  });
+
+  send(res, r);
+});
+
+app.post("/voicemail", (req, res) => {
+  const r = twiml();
+
+  console.log("Voicemail received:");
+  console.log({
+    from: req.body.From,
+    recordingUrl: req.body.RecordingUrl,
+    duration: req.body.RecordingDuration,
+    department: req.query.department,
+    ticket: req.query.ticket,
+    reason: req.query.reason
+  });
+
+  r.say(voice, "Thank you. Your message has been recorded.");
+  r.say(voice, "A support record has been created for this call.");
+  r.say(voice, "Goodbye.");
+
+  r.hangup();
+  send(res, r);
 });
 
 const PORT = process.env.PORT || 8080;
-
 app.listen(PORT, () => {
-  console.log(`Lukintosh Voice server running on port ${PORT}`);
+  console.log(`Lukintosh Voice Support running on port ${PORT}`);
 });
