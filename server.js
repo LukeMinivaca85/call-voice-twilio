@@ -4,29 +4,11 @@ const twilio = require("twilio");
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 
-app.post("/voice", (req, res) => {
+app.get("/voice", (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
 
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "Thank you for calling Lukintosh Corporation."
-  );
-
-  const gather = twiml.gather({
-    numDigits: 1,
-    timeout: 8,
-    action: "/menu",
-    method: "POST"
-  });
-
-  gather.say(
-    { voice: "alice", language: "en-US" },
-    "Press 1 for Lukintosh ID. Press 2 for Yeux Support. Press 3 for company information."
-  );
-
-  twiml.say(
-    { voice: "alice", language: "en-US" },
-    "No option was selected. Goodbye."
+  twiml.say({ voice: "alice", language: "en-US" },
+    "Thank you for calling Lukintosh Corporation. This line is currently in testing."
   );
 
   res.type("text/xml");
