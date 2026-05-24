@@ -369,30 +369,86 @@ app.post("/connect-agent", async (req, res) => {
   const callerNumber = req.body.From || req.query.From || "+15555550123";
   const calledNumber = req.body.To || line.number;
 
-  if (!ELEVENLABS_API_KEY) {
-    const r = twiml();
-    r.say(systemVoice, "The AI representative is not configured yet. Please try again later.");
-    r.hangup();
-    return send(res, r);
-  }
+  console.log("DEBUG connect-agent incoming:", {
+    lineKey,
+    line: line.label,
+    agentName: line.agentName,
+    hasApiKey: !!ELEVENLABS_API_KEY,
+    agentIdPresent: !!agentId,
+    agentIdPreview: agentId ? `${agentId.slice(0, 8)}...` : "missing",
+    callerNumber,
+    calledNumber,
+    ticket: req.query.ticket,
+    department: req.query.department,
+  });
 
-  if (!agentId) {
-    const r = twiml();
-    r.say(systemVoice, "The Lukintosh representative is not configured yet. Please try again later.");
-    r.hangup();
-    return send(res, r);
+  if (!ELEVENLABS_API_KEY || !agentId) {
+    res.status(500).type("application/json");
+    return res.send({
+      ok: false,
+      error: "missing_config",
+      hasApiKey: !!ELEVENLABS_API_KEY,
+      agentIdPresent: !!agentId,
+      lineKey,
+    });
   }
 
   try {
-    console.log("Registering ElevenLabs call:", {
-      line: line.label,
-      agentName: line.agentName,
-      agentId,
-      callerNumber,
-      calledNumber,
-      ticket: req.query.ticket,
-      department: req.query.department,
+    const payload = {
+      agent_id: agentId,
+      from_number: callerNumber,
+      to_number: calledNumber,
+      direction: "inbound",
+    };
+
+    console.log("DEBUG ElevenLabs payload:", {
+      ...payload,
+      agent_id: `${agentId.slice(0, 8)}...`,
     });
+
+    const response = await fetch(
+      "https://api.elevenlabs.io/v1/convai/twilio/register-call",
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const responseText = await response.text();
+
+    console.log("DEBUG ElevenLabs response:", {
+      status: response.status,
+      ok: response.ok,
+      body: responseText,
+    });
+
+    if (!response.ok) {
+      res.status(500).type("application/json");
+      return res.send({
+        ok: false,
+        error: "elevenlabs_register_call_failed",
+        status: response.status,
+        body: responseText,
+      });
+    }
+
+    res.type("text/xml");
+    return res.send(responseText);
+  } catch (error) {
+    console.error("DEBUG connect-agent exception:", error);
+
+    res.status(500).type("application/json");
+    return res.send({
+      ok: false,
+      error: "exception",
+      message: error.message,
+    });
+  }
+});
 
     const response = await fetch(
       "https://api.elevenlabs.io/v1/convai/twilio/register-call",
