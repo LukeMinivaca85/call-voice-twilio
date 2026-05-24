@@ -8,7 +8,15 @@ app.use(express.json());
 
 const BASE_URL = "https://call-voice-twilio.onrender.com";
 
-const voice = { voice: "alice", language: "en-US" };
+// Voz institucional da URA
+const systemVoice = { voice: "alice", language: "en-US" };
+
+// Vozes dos representantes.
+// Se alguma voz não funcionar na Twilio, troque por "Polly.Joanna" ou "woman".
+const representativeVoices = {
+  NOVA: { voice: "Polly.Joanna-Neural", language: "en-US" },
+  VICTORIA: { voice: "Polly.Amy-Neural", language: "en-GB" },
+};
 
 const NUMBERS = {
   MAIN_SUPPORT: {
@@ -16,6 +24,9 @@ const NUMBERS = {
     publicName: "United States and Canada Main Support",
     number: "1-800-753-3988",
     endpoint: "/voice/main-support",
+    representativeName: "Nova",
+    representativeKey: "NOVA",
+    representativeTitle: "automated representative for Lukintosh Main Support",
   },
   BUSINESS: {
     label: "Lukintosh Business",
@@ -23,6 +34,10 @@ const NUMBERS = {
     number: "1-888-LUK-2819",
     numericNumber: "1-888-585-2819",
     endpoint: "/voice/business",
+    representativeName: "Victoria",
+    representativeKey: "VICTORIA",
+    representativeTitle:
+      "automated representative for Lukintosh Business and Corporate Inquiries",
   },
 };
 
@@ -53,6 +68,15 @@ function detectLineFromTwilioTo(to = "") {
   }
 
   return "MAIN_SUPPORT";
+}
+
+function getLine(lineKey = "MAIN_SUPPORT") {
+  return NUMBERS[lineKey] || NUMBERS.MAIN_SUPPORT;
+}
+
+function getRepresentativeVoice(lineKey = "MAIN_SUPPORT") {
+  const line = getLine(lineKey);
+  return representativeVoices[line.representativeKey] || systemVoice;
 }
 
 /* ============================================================
@@ -94,17 +118,15 @@ function generateLukintoshHoldMusic() {
   const dataLength = totalSamples * 2;
   const audio = Buffer.alloc(dataLength);
 
-  // Acordes simples, calmos, estilo espera corporativa.
   const chords = [
-    [261.63, 329.63, 392.0], // C major
-    [293.66, 349.23, 440.0], // D minor-ish
-    [329.63, 392.0, 493.88], // E minor-ish
-    [349.23, 440.0, 523.25], // F major
+    [261.63, 329.63, 392.0],
+    [293.66, 349.23, 440.0],
+    [329.63, 392.0, 493.88],
+    [349.23, 440.0, 523.25],
   ];
 
   for (let i = 0; i < totalSamples; i++) {
     const t = i / sampleRate;
-
     const chordIndex = Math.floor(t / 3) % chords.length;
     const chord = chords[chordIndex];
 
@@ -114,15 +136,12 @@ function generateLukintoshHoldMusic() {
       sample += Math.sin(2 * Math.PI * freq * t) * 0.16;
     }
 
-    // Grave ambiente leve.
     sample += Math.sin(2 * Math.PI * 110 * t) * 0.05;
 
-    // Fade in/out para não estourar no ouvido.
     const fadeIn = Math.min(1, t / 1.2);
     const fadeOut = Math.min(1, (durationSeconds - t) / 1.2);
     const envelope = Math.min(fadeIn, fadeOut);
 
-    // Volume baixo para telefonia.
     sample *= envelope * 0.35;
 
     const intSample = Math.max(-1, Math.min(1, sample)) * 32767;
@@ -155,26 +174,34 @@ app.get("/audio/lukintosh-hold-12s.wav", (req, res) => {
 
 function buildMainMenu(lineKey = "MAIN_SUPPORT") {
   const r = twiml();
-  const line = NUMBERS[lineKey] || NUMBERS.MAIN_SUPPORT;
+  const line = getLine(lineKey);
+  const repVoice = getRepresentativeVoice(lineKey);
 
   r.pause({ length: 1 });
 
-  r.say(voice, "Thank you for calling Lukintosh Corporation.");
+  // Alice: voz institucional
+  r.say(systemVoice, "Thank you for calling Lukintosh Corporation.");
+
+  // Representative: voz mais humana
+  r.say(
+    repVoice,
+    `This is ${line.representativeName}, the ${line.representativeTitle}.`
+  );
 
   if (lineKey === "BUSINESS") {
     r.say(
-      voice,
-      "You have reached Lukintosh Business and Corporate Inquiries."
+      repVoice,
+      "I can help collect your information, route your inquiry, and create a business support record."
     );
   } else {
     r.say(
-      voice,
-      "You have reached Lukintosh Main Support for the United States and Canada."
+      repVoice,
+      "I can help route your request, collect support details, and create a support record for the United States and Canada."
     );
   }
 
   r.say(
-    voice,
+    systemVoice,
     "Your call may be monitored or recorded for quality, training, security, and service improvement purposes."
   );
 
@@ -185,7 +212,7 @@ function buildMainMenu(lineKey = "MAIN_SUPPORT") {
     method: "POST",
   });
 
-  lang.say(voice, "For English, press 1. Para portugues, press 2.");
+  lang.say(systemVoice, "For English, press 1. Para portugues, press 2.");
 
   r.redirect({ method: "POST" }, `${BASE_URL}${line.endpoint}`);
 
@@ -203,8 +230,8 @@ app.get("/", (req, res) => {
 
     <h2>Official Numbers</h2>
     <ul>
-      <li><strong>Main Support:</strong> ${NUMBERS.MAIN_SUPPORT.number}</li>
-      <li><strong>Business:</strong> ${NUMBERS.BUSINESS.number} / ${NUMBERS.BUSINESS.numericNumber}</li>
+      <li><strong>Main Support:</strong> ${NUMBERS.MAIN_SUPPORT.number} — Representative: ${NUMBERS.MAIN_SUPPORT.representativeName}</li>
+      <li><strong>Business:</strong> ${NUMBERS.BUSINESS.number} / ${NUMBERS.BUSINESS.numericNumber} — Representative: ${NUMBERS.BUSINESS.representativeName}</li>
     </ul>
 
     <h2>Twilio Webhooks</h2>
@@ -213,46 +240,94 @@ app.get("/", (req, res) => {
       <li><a href="/voice/business">/voice/business</a> — 1-888 Business</li>
       <li><a href="/voice">/voice</a> — automatic fallback by Twilio To number</li>
       <li><a href="/audio/lukintosh-hold-12s.wav">/audio/lukintosh-hold-12s.wav</a> — 12-second generated hold music</li>
-      <li><a href="/preview">/preview</a> — full browser preview</li>
+      <li><a href="/preview/main-support">/preview/main-support</a> — Main Support preview</li>
+      <li><a href="/preview/business">/preview/business</a> — Business preview</li>
     </ul>
   `);
 });
 
 app.get("/preview", (req, res) => {
-  const r = twiml();
+  send(res, buildPreview("MAIN_SUPPORT"));
+});
 
-  r.say(voice, "Thank you for calling Lukintosh Corporation.");
+app.get("/preview/main-support", (req, res) => {
+  send(res, buildPreview("MAIN_SUPPORT"));
+});
+
+app.get("/preview/business", (req, res) => {
+  send(res, buildPreview("BUSINESS"));
+});
+
+function buildPreview(lineKey = "MAIN_SUPPORT") {
+  const r = twiml();
+  const line = getLine(lineKey);
+  const repVoice = getRepresentativeVoice(lineKey);
+
+  r.say(systemVoice, "Thank you for calling Lukintosh Corporation.");
+
   r.say(
-    voice,
+    repVoice,
+    `This is ${line.representativeName}, the ${line.representativeTitle}.`
+  );
+
+  r.say(
+    systemVoice,
     "Your call may be monitored or recorded for quality, training, security, and service improvement purposes."
   );
 
-  r.say(voice, "For English, press 1. Para portugues, press 2.");
+  r.say(systemVoice, "For English, press 1. Para portugues, press 2.");
   r.say(
-    voice,
+    systemVoice,
     "Please listen carefully as our menu options have recently changed."
   );
-  r.say(voice, "For Lukintosh Accounts and sign in support, press 1.");
-  r.say(voice, "For Yeux accessibility and eye tracking support, press 2.");
-  r.say(voice, "For developer tools, APIs, and platform services, press 3.");
-  r.say(voice, "For security, abuse, and account protection, press 4.");
-  r.say(voice, "For company, media, and business information, press 5.");
-  r.say(voice, "Before we continue, we need to collect a few details.");
-  r.say(voice, "Please enter your six digit support code or ticket number.");
-  r.say(
-    voice,
-    "Please hold while we route your call to the correct support channel."
-  );
-  r.play(`${BASE_URL}/audio/lukintosh-hold-12s.wav`);
-  r.pause({ length: 1 });
-  r.say(
-    voice,
-    "Thank you for waiting. This automated support desk will now create a support record for your request."
-  );
-  r.say(voice, "Please leave your message after the tone.");
 
-  send(res, r);
-});
+  if (lineKey === "BUSINESS") {
+    r.say(repVoice, "For business partnerships, press 1.");
+    r.say(repVoice, "For developer relations, press 2.");
+    r.say(repVoice, "For media and press inquiries, press 3.");
+    r.say(repVoice, "For legal, compliance, or security matters, press 4.");
+    r.say(repVoice, "For general corporate information, press 5.");
+  } else {
+    r.say(systemVoice, "For Lukintosh Accounts and sign in support, press 1.");
+    r.say(
+      systemVoice,
+      "For Yeux accessibility and eye tracking support, press 2."
+    );
+    r.say(
+      systemVoice,
+      "For developer tools, APIs, and platform services, press 3."
+    );
+    r.say(
+      systemVoice,
+      "For security, abuse, and account protection, press 4."
+    );
+    r.say(
+      systemVoice,
+      "For company, media, and business information, press 5."
+    );
+  }
+
+  r.say(repVoice, "Before we continue, I need to collect a few details.");
+  r.say(systemVoice, "Please enter your six digit support code or ticket number.");
+
+  r.say(
+    repVoice,
+    "Please hold for a moment while I route your request to the correct Lukintosh support channel."
+  );
+
+  r.play(`${BASE_URL}/audio/lukintosh-hold-12s.wav`);
+
+  r.pause({ length: 1 });
+
+  r.say(
+    repVoice,
+    "Thank you for waiting. I will now create a support record for your request."
+  );
+
+  r.say(repVoice, "Please leave your message after the tone.");
+
+  return r;
+}
 
 /* ============================================================
    VOICE ENTRYPOINTS
@@ -293,25 +368,23 @@ app.post("/language", (req, res) => {
 
   const digit = req.body.Digits;
   const lineKey = req.query.line || "MAIN_SUPPORT";
+  const line = getLine(lineKey);
+  const repVoice = getRepresentativeVoice(lineKey);
 
   if (digit !== "1") {
     r.say(
-      voice,
+      systemVoice,
       "Portuguese support is not available on this testing line yet. Continuing in English."
     );
   }
 
-  if (lineKey === "BUSINESS") {
-    r.say(
-      voice,
-      "You are now in the Lukintosh Business and Corporate Inquiries menu."
-    );
-  } else {
-    r.say(voice, "You are now in the Lukintosh Main Support menu.");
-  }
+  r.say(
+    repVoice,
+    `You are now in the ${line.publicName} menu.`
+  );
 
   r.say(
-    voice,
+    systemVoice,
     "Please listen carefully as our menu options have recently changed."
   );
 
@@ -323,27 +396,27 @@ app.post("/language", (req, res) => {
   });
 
   if (lineKey === "BUSINESS") {
-    gather.say(voice, "For business partnerships, press 1.");
-    gather.say(voice, "For developer relations, press 2.");
-    gather.say(voice, "For media and press inquiries, press 3.");
-    gather.say(voice, "For legal, compliance, or security matters, press 4.");
-    gather.say(voice, "For general corporate information, press 5.");
+    gather.say(repVoice, "For business partnerships, press 1.");
+    gather.say(repVoice, "For developer relations, press 2.");
+    gather.say(repVoice, "For media and press inquiries, press 3.");
+    gather.say(repVoice, "For legal, compliance, or security matters, press 4.");
+    gather.say(repVoice, "For general corporate information, press 5.");
   } else {
-    gather.say(voice, "For Lukintosh Accounts and sign in support, press 1.");
+    gather.say(systemVoice, "For Lukintosh Accounts and sign in support, press 1.");
     gather.say(
-      voice,
+      systemVoice,
       "For Yeux accessibility and eye tracking support, press 2."
     );
     gather.say(
-      voice,
+      systemVoice,
       "For developer tools, APIs, and platform services, press 3."
     );
     gather.say(
-      voice,
+      systemVoice,
       "For security, abuse, and account protection, press 4."
     );
     gather.say(
-      voice,
+      systemVoice,
       "For company, media, and business information, press 5."
     );
   }
@@ -362,8 +435,9 @@ app.post("/department", (req, res) => {
 
   const lineKey = req.query.line || "MAIN_SUPPORT";
   const department = req.body.Digits || "unknown";
+  const repVoice = getRepresentativeVoice(lineKey);
 
-  r.say(voice, "Before we continue, we need to collect a few details.");
+  r.say(repVoice, "Before we continue, I need to collect a few details.");
 
   const gather = r.gather({
     input: "dtmf",
@@ -374,7 +448,7 @@ app.post("/department", (req, res) => {
   });
 
   gather.say(
-    voice,
+    systemVoice,
     "Please enter your six digit support code or ticket number. If you do not have one, enter zero zero zero zero zero zero."
   );
 
@@ -396,9 +470,10 @@ app.post("/account", (req, res) => {
   const lineKey = req.query.line || "MAIN_SUPPORT";
   const department = req.query.department || "unknown";
   const ticket = req.body.Digits || "000000";
+  const repVoice = getRepresentativeVoice(lineKey);
 
   r.say(
-    voice,
+    repVoice,
     `Thank you. Your reference code is ${ticket.split("").join(" ")}.`
   );
 
@@ -411,17 +486,17 @@ app.post("/account", (req, res) => {
   });
 
   if (lineKey === "BUSINESS") {
-    gather.say(voice, "For partnership or commercial opportunities, press 1.");
-    gather.say(voice, "For developer platform or API inquiries, press 2.");
-    gather.say(voice, "For media, press, or brand inquiries, press 3.");
-    gather.say(voice, "For legal, trust, or compliance matters, press 4.");
-    gather.say(voice, "For another business reason, press 5.");
+    gather.say(repVoice, "For partnership or commercial opportunities, press 1.");
+    gather.say(repVoice, "For developer platform or API inquiries, press 2.");
+    gather.say(repVoice, "For media, press, or brand inquiries, press 3.");
+    gather.say(repVoice, "For legal, trust, or compliance matters, press 4.");
+    gather.say(repVoice, "For another business reason, press 5.");
   } else {
-    gather.say(voice, "For login or password issues, press 1.");
-    gather.say(voice, "For product setup or installation, press 2.");
-    gather.say(voice, "For billing or subscription information, press 3.");
-    gather.say(voice, "For technical errors, press 4.");
-    gather.say(voice, "For another reason, press 5.");
+    gather.say(systemVoice, "For login or password issues, press 1.");
+    gather.say(systemVoice, "For product setup or installation, press 2.");
+    gather.say(systemVoice, "For billing or subscription information, press 3.");
+    gather.say(systemVoice, "For technical errors, press 4.");
+    gather.say(systemVoice, "For another reason, press 5.");
   }
 
   r.redirect(
@@ -440,7 +515,8 @@ app.post("/reason", (req, res) => {
   const r = twiml();
 
   const lineKey = req.query.line || "MAIN_SUPPORT";
-  const line = NUMBERS[lineKey] || NUMBERS.MAIN_SUPPORT;
+  const line = getLine(lineKey);
+  const repVoice = getRepresentativeVoice(lineKey);
 
   const department = req.query.department || "unknown";
   const ticket = req.query.ticket || "000000";
@@ -449,6 +525,7 @@ app.post("/reason", (req, res) => {
   console.log("New support call:", {
     line: line.label,
     publicName: line.publicName,
+    representative: line.representativeName,
     calledNumber: req.body.To,
     from: req.body.From,
     country: req.body.FromCountry,
@@ -457,33 +534,31 @@ app.post("/reason", (req, res) => {
     reason,
   });
 
-  r.say(voice, "Thank you. We are checking your information.");
+  r.say(repVoice, "Thank you. I am checking your information.");
   r.pause({ length: 1 });
 
   r.say(
-    voice,
-    "Please hold for a moment while we route your request to the correct Lukintosh support channel."
+    repVoice,
+    "Please hold for a moment while I route your request to the correct Lukintosh support channel."
   );
 
-  // 12 seconds exactly, generated by this server.
   r.play(`${BASE_URL}/audio/lukintosh-hold-12s.wav`);
 
-  // After the 12-second audio ends, Twilio continues here.
   r.pause({ length: 1 });
 
   r.say(
-    voice,
-    "Thank you for waiting. This automated support desk will now create a support record for your request."
+    repVoice,
+    "Thank you for waiting. I will now create a support record for your request."
   );
 
   if (lineKey === "BUSINESS") {
     r.say(
-      voice,
+      repVoice,
       "Please leave a business message after the tone. Include your name, organization, email address, and a short description of your inquiry."
     );
   } else {
     r.say(
-      voice,
+      repVoice,
       "Please leave a support message after the tone. Include your name, email address, phone number, and a short description of the issue."
     );
   }
@@ -507,11 +582,13 @@ app.post("/voicemail", (req, res) => {
   const r = twiml();
 
   const lineKey = req.query.line || "MAIN_SUPPORT";
-  const line = NUMBERS[lineKey] || NUMBERS.MAIN_SUPPORT;
+  const line = getLine(lineKey);
+  const repVoice = getRepresentativeVoice(lineKey);
 
   console.log("Voicemail received:", {
     line: line.label,
     publicName: line.publicName,
+    representative: line.representativeName,
     from: req.body.From,
     to: req.body.To,
     recordingUrl: req.body.RecordingUrl,
@@ -521,9 +598,12 @@ app.post("/voicemail", (req, res) => {
     reason: req.query.reason,
   });
 
-  r.say(voice, "Thank you. Your message has been recorded.");
-  r.say(voice, "A support record has been created for this call.");
-  r.say(voice, "Goodbye.");
+  r.say(repVoice, "Thank you. I have recorded your message.");
+  r.say(
+    repVoice,
+    "A Lukintosh support record has been created for this call."
+  );
+  r.say(systemVoice, "Thank you for contacting Lukintosh. Goodbye.");
   r.hangup();
 
   send(res, r);
