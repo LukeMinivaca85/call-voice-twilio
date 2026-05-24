@@ -25,8 +25,8 @@ const NUMBERS = {
     displayNumber: "+1 800-753-3988",
     endpoint: "/voice/main-support",
     agentName: "Nova",
-    agentEnvKey: "ELEVENLABS_AGENT_NOVA",
   },
+
   BUSINESS: {
     label: "Lukintosh Business",
     publicName: "Business and Corporate Inquiries",
@@ -34,7 +34,6 @@ const NUMBERS = {
     displayNumber: "+1 888-LUK-2819 / +1 888-585-2819",
     endpoint: "/voice/business",
     agentName: "Victoria",
-    agentEnvKey: "ELEVENLABS_AGENT_VICTORIA",
   },
 };
 
@@ -142,7 +141,13 @@ function generateLukintoshHoldMusic() {
     audio.writeInt16LE(intSample, i * 2);
   }
 
-  const header = createWavHeader(dataLength, sampleRate, channels, bitsPerSample);
+  const header = createWavHeader(
+    dataLength,
+    sampleRate,
+    channels,
+    bitsPerSample
+  );
+
   return Buffer.concat([header, audio]);
 }
 
@@ -157,7 +162,7 @@ app.get("/audio/lukintosh-hold-12s.wav", (req, res) => {
 });
 
 /* ============================================================
-   HOME
+   HOME / STATUS
    ============================================================ */
 
 app.get("/", (req, res) => {
@@ -184,6 +189,9 @@ app.get("/", (req, res) => {
       <li>ELEVENLABS_AGENT_NOVA: ${ELEVENLABS_AGENT_NOVA ? "set" : "missing"}</li>
       <li>ELEVENLABS_AGENT_VICTORIA: ${ELEVENLABS_AGENT_VICTORIA ? "set" : "missing"}</li>
     </ul>
+
+    <h2>Debug Tests</h2>
+    <p>Use curl with POST for /connect-agent. Browser GET will not work for that route.</p>
   `);
 });
 
@@ -200,9 +208,15 @@ function buildMainMenu(lineKey = "MAIN_SUPPORT") {
   r.say(systemVoice, "Thank you for calling Lukintosh Corporation.");
 
   if (lineKey === "BUSINESS") {
-    r.say(systemVoice, "You have reached Lukintosh Business and Corporate Inquiries.");
+    r.say(
+      systemVoice,
+      "You have reached Lukintosh Business and Corporate Inquiries."
+    );
   } else {
-    r.say(systemVoice, "You have reached Lukintosh Main Support for the United States and Canada.");
+    r.say(
+      systemVoice,
+      "You have reached Lukintosh Main Support for the United States and Canada."
+    );
   }
 
   r.say(
@@ -279,15 +293,27 @@ app.post("/language", (req, res) => {
   });
 
   if (lineKey === "BUSINESS") {
-    gather.say(systemVoice, "For partnerships and commercial opportunities, press 1.");
+    gather.say(
+      systemVoice,
+      "For partnerships and commercial opportunities, press 1."
+    );
     gather.say(systemVoice, "For developer relations, press 2.");
     gather.say(systemVoice, "For media and press inquiries, press 3.");
     gather.say(systemVoice, "For legal, trust, or compliance matters, press 4.");
     gather.say(systemVoice, "For general corporate information, press 5.");
   } else {
-    gather.say(systemVoice, "For Yeux accessibility and eye tracking support, press 1.");
-    gather.say(systemVoice, "For developer tools, APIs, and platform services, press 2.");
-    gather.say(systemVoice, "For Lukintosh Accounts and sign in support, press 3.");
+    gather.say(
+      systemVoice,
+      "For Yeux accessibility and eye tracking support, press 1."
+    );
+    gather.say(
+      systemVoice,
+      "For developer tools, APIs, and platform services, press 2."
+    );
+    gather.say(
+      systemVoice,
+      "For Lukintosh Accounts and sign in support, press 3."
+    );
     gather.say(systemVoice, "For security and account protection, press 4.");
     gather.say(systemVoice, "For another support request, press 5.");
   }
@@ -338,6 +364,7 @@ app.post("/support-code", (req, res) => {
   const r = twiml();
 
   const lineKey = req.query.line || "MAIN_SUPPORT";
+  const department = req.query.department || "unknown";
   const ticket = req.body.Digits || "000000";
 
   r.say(
@@ -345,20 +372,25 @@ app.post("/support-code", (req, res) => {
     `Thank you. Your reference code is ${ticket.split("").join(" ")}.`
   );
 
-  r.say(systemVoice, "Please hold while I connect you with a Lukintosh representative.");
+  r.say(
+    systemVoice,
+    "Please hold while I connect you with a Lukintosh representative."
+  );
 
   r.play(`${BASE_URL}/audio/lukintosh-hold-12s.wav`);
 
   r.redirect(
     { method: "POST" },
-    `${BASE_URL}/connect-agent?line=${lineKey}&ticket=${encodeURIComponent(ticket)}&department=${encodeURIComponent(req.query.department || "unknown")}`
+    `${BASE_URL}/connect-agent?line=${lineKey}&ticket=${encodeURIComponent(
+      ticket
+    )}&department=${encodeURIComponent(department)}`
   );
 
   send(res, r);
 });
 
 /* ============================================================
-   STEP 5 — REGISTER TWILIO CALL WITH ELEVENLABS
+   STEP 5 — DEBUG REGISTER TWILIO CALL WITH ELEVENLABS
    ============================================================ */
 
 app.post("/connect-agent", async (req, res) => {
@@ -450,73 +482,16 @@ app.post("/connect-agent", async (req, res) => {
   }
 });
 
-    const response = await fetch(
-      "https://api.elevenlabs.io/v1/convai/twilio/register-call",
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          agent_id: agentId,
-          from_number: callerNumber,
-          to_number: calledNumber,
-        }),
-      }
-    );
-
-    const twimlText = await response.text();
-
-    if (!response.ok) {
-      console.error("ElevenLabs register-call error:", response.status, twimlText);
-
-      const r = twiml();
-      r.say(
-        systemVoice,
-        "I could not connect you with the AI representative right now. Please try again later."
-      );
-      r.hangup();
-      return send(res, r);
-    }
-
-    res.type("text/xml");
-    res.send(twimlText);
-  } catch (error) {
-    console.error("Connect agent error:", error);
-
-    const r = twiml();
-    r.say(
-      systemVoice,
-      "I could not connect you with the AI representative right now. Please try again later."
-    );
-    r.hangup();
-    send(res, r);
-  }
-});
-
 /* ============================================================
-   TEST ENDPOINTS
+   SAFE FALLBACK IF SOMEONE GETS /connect-agent IN BROWSER
    ============================================================ */
 
-app.get("/test/connect-main", async (req, res) => {
-  req.query.line = "MAIN_SUPPORT";
-  req.body = {
-    From: "+15555550123",
-    To: "+18007533988",
-  };
-
-  app._router.handle(req, res, () => {}, "/connect-agent");
-});
-
-app.get("/test/connect-business", async (req, res) => {
-  req.query.line = "BUSINESS";
-  req.body = {
-    From: "+15555550123",
-    To: "+18885852819",
-  };
-
-  app._router.handle(req, res, () => {}, "/connect-agent");
+app.get("/connect-agent", (req, res) => {
+  res.status(405).json({
+    ok: false,
+    error: "method_not_allowed",
+    message: "Use POST, not GET. Test with curl -X POST.",
+  });
 });
 
 /* ============================================================
