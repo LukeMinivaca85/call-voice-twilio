@@ -90,13 +90,18 @@ function getAgentId(lineKey = "MAIN_SUPPORT") {
   Agora é chamado logo no início da chamada, nos endpoints /voice.
 */
 function scheduleCallLimit(callSid, seconds = MAX_CALL_SECONDS) {
+  if (!callSid) {
+    console.log("Call limit skipped: no CallSid, probably browser/curl test.");
+    return;
+  }
+
   if (!twilioClient) {
     console.warn("Call limit not scheduled: missing Twilio credentials.");
     return;
   }
 
-  if (!callSid || !String(callSid).startsWith("CA")) {
-    console.warn("Call limit not scheduled: invalid or missing CallSid.", callSid);
+  if (!String(callSid).startsWith("CA")) {
+    console.warn("Call limit not scheduled: invalid CallSid.", callSid);
     return;
   }
 
