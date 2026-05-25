@@ -12,10 +12,6 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_AGENT_NOVA = process.env.ELEVENLABS_AGENT_NOVA;
 const ELEVENLABS_AGENT_VICTORIA = process.env.ELEVENLABS_AGENT_VICTORIA;
 
-/*
-  ADICIONADO:
-  Credenciais da Twilio para cortar a chamada automaticamente depois de 3 minutos.
-*/
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const MAX_CALL_SECONDS = Number(process.env.MAX_CALL_SECONDS || 180);
@@ -49,6 +45,8 @@ const NUMBERS = {
     agentName: "Victoria",
   },
 };
+
+const scheduledCallLimits = new Set();
 
 function twiml() {
   return new twilio.twiml.VoiceResponse();
@@ -87,9 +85,9 @@ function getAgentId(lineKey = "MAIN_SUPPORT") {
 }
 
 /*
-  ADICIONADO:
-  Função que agenda o encerramento forçado da chamada.
-  Ela só funciona em ligação real, porque precisa do CallSid real da Twilio.
+  HARD LIMIT:
+  Encerra a chamada depois de MAX_CALL_SECONDS.
+  Agora é chamado logo no início da chamada, nos endpoints /voice.
 */
 function scheduleCallLimit(callSid, seconds = MAX_CALL_SECONDS) {
   if (!twilioClient) {
@@ -102,6 +100,13 @@ function scheduleCallLimit(callSid, seconds = MAX_CALL_SECONDS) {
     return;
   }
 
+  if (scheduledCallLimits.has(callSid)) {
+    console.log("Call limit already scheduled for:", callSid);
+    return;
+  }
+
+  scheduledCallLimits.add(callSid);
+
   console.log(`Scheduling hard call limit: ${seconds}s for ${callSid}`);
 
   setTimeout(async () => {
@@ -111,11 +116,15 @@ function scheduleCallLimit(callSid, seconds = MAX_CALL_SECONDS) {
       await twilioClient.calls(callSid).update({
         status: "completed",
       });
+
+      scheduledCallLimits.delete(callSid);
     } catch (error) {
       console.error("Failed to end call by time limit:", {
         callSid,
         message: error.message,
       });
+
+      scheduledCallLimits.delete(callSid);
     }
   }, seconds * 1000);
 }
@@ -239,9 +248,6 @@ app.get("/", (req, res) => {
       <li>TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN ? "set" : "missing"}</li>
       <li>MAX_CALL_SECONDS: ${MAX_CALL_SECONDS}</li>
     </ul>
-
-    <h2>Debug Tests</h2>
-    <p>Use curl with POST for /connect-agent. Browser GET will not work for that route.</p>
   `);
 });
 
@@ -296,6 +302,7 @@ app.get("/voice", (req, res) => {
 
 app.post("/voice", (req, res) => {
   const lineKey = detectLineFromTwilioTo(req.body.To || "");
+  scheduleCallLimit(req.body.CallSid, MAX_CALL_SECONDS);
   send(res, buildMainMenu(lineKey));
 });
 
@@ -304,6 +311,7 @@ app.get("/voice/main-support", (req, res) => {
 });
 
 app.post("/voice/main-support", (req, res) => {
+  scheduleCallLimit(req.body.CallSid, MAX_CALL_SECONDS);
   send(res, buildMainMenu("MAIN_SUPPORT"));
 });
 
@@ -312,6 +320,7 @@ app.get("/voice/business", (req, res) => {
 });
 
 app.post("/voice/business", (req, res) => {
+  scheduleCallLimit(req.body.CallSid, MAX_CALL_SECONDS);
   send(res, buildMainMenu("BUSINESS"));
 });
 
@@ -440,8 +449,7 @@ app.post("/support-code", (req, res) => {
 });
 
 /* ============================================================
-   STEP 5 — DEBUG REGISTER TWILIO CALL WITH ELEVENLABS
-   + HARD CALL LIMIT
+   STEP 5 — REGISTER TWILIO CALL WITH ELEVENLABS
    ============================================================ */
 
 app.post("/connect-agent", async (req, res) => {
@@ -453,12 +461,10 @@ app.post("/connect-agent", async (req, res) => {
   const calledNumber = req.body.To || line.number;
 
   /*
-    ADICIONADO:
-    Em chamada real, a Twilio envia CallSid.
-    Com esse ID, conseguimos cortar a chamada depois de 180 segundos.
+    Não agenda aqui de novo.
+    O limite já foi agendado no começo da chamada em /voice.
+    Se o /connect-agent for testado por curl sem CallSid real, não tem corte mesmo.
   */
-  const callSid = req.body.CallSid || req.query.CallSid;
-  scheduleCallLimit(callSid, MAX_CALL_SECONDS);
 
   console.log("DEBUG connect-agent incoming:", {
     lineKey,
@@ -469,8 +475,6 @@ app.post("/connect-agent", async (req, res) => {
     agentIdPreview: agentId ? `${agentId.slice(0, 8)}...` : "missing",
     callerNumber,
     calledNumber,
-    callSid,
-    maxCallSeconds: MAX_CALL_SECONDS,
     ticket: req.query.ticket,
     department: req.query.department,
   });
@@ -566,5 +570,5 @@ app.listen(PORT, () => {
   console.log(`Main Support endpoint: ${NUMBERS.MAIN_SUPPORT.endpoint}`);
   console.log(`Business endpoint: ${NUMBERS.BUSINESS.endpoint}`);
   console.log(`Hold music: ${BASE_URL}/audio/lukintosh-hold-12s.wav`);
-  console.log(`Max call seconds: ${MAX_CALL_SECONDS}`);
+  console.log(`Max call seconds from start: ${MAX_CALL_SECONDS}`);
 });
